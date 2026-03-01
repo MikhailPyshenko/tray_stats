@@ -4,10 +4,13 @@
 
 Включенный оверлей:
 <img width="280" height="97" alt="{FA25D60F-50B5-49BB-B9C3-104FCCDE9BBA}" src="https://github.com/user-attachments/assets/41c5285d-5ab7-4240-a6d5-5b060936d392" /> 
+
 Всплывающая подсказка в трее:
 <img width="217" height="87" alt="{D763227F-1A85-4D3E-AE84-E5B1A298F09A}" src="https://github.com/user-attachments/assets/0d0d8127-084d-4504-bee1-5872b7c49bba" />
+
 Настройки в трее:
 <img width="262" height="149" alt="{A848C8BA-8FC9-44BE-AFC8-7F2380233523}" src="https://github.com/user-attachments/assets/cfc4930e-9b90-4bf6-a141-ac419f5b94dd" />
+
 Основное окно программы с показателями и настройками:
 <img width="1261" height="695" alt="{CAA5D1A9-962C-4E14-8C6E-6E29AB6BCD3E}" src="https://github.com/user-attachments/assets/aa304c62-f800-432d-a856-b8457763da58" />
 
