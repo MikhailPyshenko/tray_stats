@@ -65,15 +65,24 @@ OVERLAY_BOLD = False
 _overlay_root = None
 _overlay_thread = None
 
-# Варианты для выпадающих списков оверлея
-OVERLAY_COLORS = [("Белый", "#ffffff"), ("Жёлтый", "#ffff00"), ("Зелёный", "#00ff00"), ("Голубой", "#89b4fa"), ("Красный", "#ff6666"), ("Чёрный", "#000000")]
-OVERLAY_POSITIONS = [("Сверху слева", "top_left"), ("Сверху справа", "top_right"), ("Снизу слева", "bottom_left"), ("Снизу справа", "bottom_right")]
-OVERLAY_BACKGROUNDS = [("Прозрачная", "transparent"), ("Чёрная 25%", "black_25"), ("Чёрная 50%", "black_50"), ("Белая 25%", "white_25"), ("Белая 50%", "white_50")]
+# Варианты для выпадающих списков оверлея (подписи из lang через t())
+OVERLAY_COLOR_KEYS = [("white", "#ffffff"), ("yellow", "#ffff00"), ("green", "#00ff00"), ("blue", "#89b4fa"), ("red", "#ff6666"), ("black", "#000000")]
+OVERLAY_POSITION_KEYS = [("topleft", "top_left"), ("topright", "top_right"), ("bottomleft", "bottom_left"), ("bottomright", "bottom_right")]
+OVERLAY_BG_KEYS = [("transparent", "transparent"), ("black25", "black_25"), ("black50", "black_50"), ("white25", "white_25"), ("white50", "white_50")]
+
+def _overlay_colors():
+    return [(t("overlay_color_" + k), v) for k, v in OVERLAY_COLOR_KEYS]
+
+def _overlay_positions():
+    return [(t("overlay_pos_" + k), v) for k, v in OVERLAY_POSITION_KEYS]
+
+def _overlay_backgrounds():
+    return [(t("overlay_bg_" + k), v) for k, v in OVERLAY_BG_KEYS]
 
 # Метаданные программы (подпись внизу окна)
 APP_NAME = "tray_stats"
 APP_AUTHOR = "sir_rumata"
-APP_VERSION = "β.0.4.4"
+APP_VERSION = "β.0.5.5"
 APP_YEAR = "2026"
 
 # Иконка трея и окна — готовый файл в корне (рядом с run.py / exe)
@@ -86,6 +95,48 @@ def _base_path():
 
 def _config_path():
     return os.path.join(_base_path(), "tray_stats_settings.json")
+
+
+def _lang_dir():
+    """Каталог с языковыми файлами (src/lang или рядом с exe при сборке)."""
+    if getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", None):
+        return os.path.join(sys._MEIPASS, "lang")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang")
+
+
+# Текущий языковой пакет (ключ → строка)
+_LANG = {}
+
+
+def load_lang(code):
+    """Загрузить языковой пакет: rus, eng, bel, tat, chi. Fallback — rus."""
+    global _LANG
+    code = (code or "rus").strip().lower()
+    if code not in ("rus", "eng", "bel", "tat", "chi"):
+        code = "rus"
+    path = os.path.join(_lang_dir(), code + ".json")
+    try:
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                _LANG = json.load(f)
+                return
+    except Exception:
+        pass
+    # Fallback на русский
+    path_rus = os.path.join(_lang_dir(), "rus.json")
+    try:
+        if os.path.isfile(path_rus):
+            with open(path_rus, "r", encoding="utf-8") as f:
+                _LANG = json.load(f)
+        else:
+            _LANG = {}
+    except Exception:
+        _LANG = {}
+
+
+def t(key):
+    """Строка по ключу из текущего языкового пакета."""
+    return _LANG.get(key, key)
 
 
 def _append_stats_to_file():
@@ -115,9 +166,30 @@ def load_settings():
     return {}
 
 
+def _get_system_theme():
+    """Тема системы: 'dark' или 'light'. Windows 10/11 — реестр Personalize\\AppsUseLightTheme."""
+    if sys.platform != "win32":
+        return "light"
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            0, winreg.KEY_READ,
+        )
+        try:
+            use_light = winreg.QueryValueEx(key, "AppsUseLightTheme")[0]
+            return "light" if use_light else "dark"
+        finally:
+            winreg.CloseKey(key)
+    except Exception:
+        pass
+    return "light"
+
+
 def save_settings(tray_visible=None, tray_interval=None, autostart=None,
                   overlay_enabled=None, overlay_text_color=None, overlay_position=None, overlay_background=None,
-                  overlay_bold=None):
+                  overlay_bold=None, theme=None, lang=None):
     """Сохраняет настройки. Переданные None не перезаписывают текущие в файле."""
     try:
         p = _config_path()
@@ -138,6 +210,10 @@ def save_settings(tray_visible=None, tray_interval=None, autostart=None,
             data["overlay_background"] = overlay_background
         if overlay_bold is not None:
             data["overlay_bold"] = overlay_bold
+        if theme is not None:
+            data["theme"] = theme
+        if lang is not None:
+            data["lang"] = lang
         with open(p, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception:
@@ -454,8 +530,8 @@ def _get_network_speed():
             dt = now - t0
             down_kb = (c.bytes_recv - r0) / dt / 1024
             up_kb = (c.bytes_sent - s0) / dt / 1024
-            return f"скачивание ↓ {down_kb:.2f} кб/с --- отдача ↑ {up_kb:.2f} кб/с"
-        return "скачивание ↓ — кб/с --- отдача ↑ — кб/с"
+            return f"{t('network_download')} ↓ {down_kb:.2f} {t('network_kbps')} --- {t('network_upload')} ↑ {up_kb:.2f} {t('network_kbps')}"
+        return f"{t('network_download')} ↓ — {t('network_kbps')} --- {t('network_upload')} ↑ — {t('network_kbps')}"
     except Exception:
         return "—"
 
@@ -518,7 +594,7 @@ def _get_battery():
         if pct is not None:
             parts.append(f"{pct}%")
         if plugged is not None:
-            parts.append("от сети" if plugged else "от батареи")
+            parts.append(t("battery_plugged") if plugged else t("battery_unplugged"))
         if secs is not None and not plugged and secs != -1:
             if secs == float("inf"):
                 parts.append("∞ до разряда")
@@ -583,15 +659,15 @@ def _get_ping():
             creationflags=SUBPROCESS_FLAGS,
         )
         if r.returncode != 0:
-            return "офлайн"
+            return t("ping_offline")
         # "Время = 12 мс" (Windows) или "time=12.3 ms" (Linux)
         out = (r.stdout or "") + (r.stderr or "")
         m = re.search(r"=\s*([\d.]+)\s*м?с", out, re.I) or re.search(r"time[=:\s]+([\d.]+)", out, re.I)
         if m:
             return f"{float(m.group(1)):.0f} мс"
-        return "онлайн"
+        return t("ping_online")
     except Exception:
-        return "офлайн"
+        return t("ping_offline")
 
 
 def _get_net_total():
@@ -602,7 +678,7 @@ def _get_net_total():
         c = psutil.net_io_counters()
         down_gb = c.bytes_recv / (1024 ** 3)
         up_gb = c.bytes_sent / (1024 ** 3)
-        return f"скачивание ↓ {down_gb:.2f} ГБ --- отдача ↑ {up_gb:.2f} ГБ"
+        return f"{t('network_download')} ↓ {down_gb:.2f} {t('network_gb')} --- {t('network_upload')} ↑ {up_gb:.2f} {t('network_gb')}"
     except Exception:
         return "—"
 
@@ -610,11 +686,11 @@ def _get_net_total():
 def _collect_all(max_cores=64):
     """Один полный сбор всех показателей. Возвращает dict строк для кэша."""
     cpu = _get_cpu(interval=0)
-    t = _get_cpu_temp()
-    cpu_line = f"ЦПУ: {cpu} | {t}°" if t else f"ЦПУ: {cpu} | —"
+    cpu_temp = _get_cpu_temp()
+    cpu_line = f"{t('visible_cpu')}: {cpu} | {cpu_temp}°" if cpu_temp else f"{t('visible_cpu')}: {cpu} | —"
     return {
         "cpu_line": cpu_line,
-        "cpu_temp_note": not t and sys.platform == "win32",
+        "cpu_temp_note": not cpu_temp and sys.platform == "win32",
         "cores": _get_cores(max_cores=max_cores),
         "gpu": _get_gpu(),
         "ram": _get_ram(),
@@ -665,32 +741,32 @@ def get_full_stats_lines(max_cores=64, visible=None):
         if visible.get("cpu", True) and "cpu_line" in cache:
             lines.append(cache["cpu_line"])
             if cache.get("cpu_temp_note"):
-                lines.append("  (темп. ЦПУ: на многих ПК Windows не отдаёт без HWiNFO/Libre HW Monitor)")
+                lines.append(t("cpu_temp_note"))
         if visible.get("cores", True) and "cores" in cache:
             cores_text = _get_cores_full_cached() if (max_cores and max_cores > 8) else cache["cores"]
-            lines.append(f"ЯДРА: {cores_text}")
+            lines.append(f"{t('section_cores')}: {cores_text}")
         if visible.get("gpu", True) and "gpu" in cache:
-            lines.append(f"ГПУ: {cache['gpu']}")
+            lines.append(f"{t('section_gpu')}: {cache['gpu']}")
         if visible.get("ram", True) and "ram" in cache:
-            lines.append(f"ОЗУ: {cache['ram']}")
+            lines.append(f"{t('section_ram')}: {cache['ram']}")
         if visible.get("disks", True) and "disks" in cache:
-            lines.append(f"ДИСКИ: {cache['disks']}")
+            lines.append(f"{t('section_disks')}: {cache['disks']}")
         # Только в окне: батарея, uptime, swap, процессы
         if "battery" in cache:
-            lines.append(f"БАТАРЕЯ: {cache['battery']}")
+            lines.append(f"{t('section_battery')}: {cache['battery']}")
         if "uptime" in cache:
-            lines.append(f"ВРЕМЯ РАБОТЫ ПК: {cache['uptime']}")
+            lines.append(f"{t('section_uptime')}: {cache['uptime']}")
         if "swap" in cache:
-            lines.append(f"ФАЙЛ ПОДКАЧКИ (SWAP): {cache['swap']}")
+            lines.append(f"{t('section_swap')}: {cache['swap']}")
         if "process_count" in cache:
-            lines.append(f"ПРОЦЕССЫ: {cache['process_count']}")
+            lines.append(f"{t('section_processes')}: {cache['process_count']}")
         # Сеть в конец: скорость (скачивание/отдача), пинг, суммарный трафик
         if visible.get("network", True) and "network_speed" in cache:
-            lines.append(f"СЕТЬ: {cache['network_speed']}")
+            lines.append(f"{t('section_network')}: {cache['network_speed']}")
         if "ping" in cache:
-            lines.append(f"ПИНГ / ИНТЕРНЕТ: {cache['ping']}")
+            lines.append(f"{t('section_ping')}: {cache['ping']}")
         if "net_total" in cache:
-            lines.append(f"СУММАРНЫЙ ТРАФИК: {cache['net_total']}")
+            lines.append(f"{t('section_net_total')}: {cache['net_total']}")
         return lines if lines else []
     except Exception:
         return []
@@ -700,7 +776,7 @@ def get_full_stats_text(max_cores=64, visible=None):
     """Полный текст для окна (одной строкой с разделителями); для вывода в одно поле."""
     lines = get_full_stats_lines(max_cores=max_cores, visible=visible)
     if not lines:
-        return "Включите хотя бы один раздел в настройках."
+        return t("placeholder_no_sections")
     return "\n—\n".join(lines)
 
 
@@ -713,22 +789,22 @@ def get_tooltip_text(max_length=TOOLTIP_MAX):
         if TRAY_VISIBLE.get("cpu", True) and "cpu_line" in cache:
             lines.append(cache["cpu_line"])
         if TRAY_VISIBLE.get("cores", True) and "cores" in cache:
-            lines.append(f"ЯДРА: {cache['cores']}")
+            lines.append(f"{t('section_cores')}: {cache['cores']}")
         if TRAY_VISIBLE.get("gpu", True) and "gpu" in cache:
-            lines.append(f"ГПУ: {cache['gpu']}")
+            lines.append(f"{t('section_gpu')}: {cache['gpu']}")
         if TRAY_VISIBLE.get("ram", True) and "ram" in cache:
-            lines.append(f"ОЗУ: {cache['ram']}")
+            lines.append(f"{t('section_ram')}: {cache['ram']}")
         if TRAY_VISIBLE.get("disks", True) and "disks" in cache:
-            lines.append(f"ДИСКИ: {cache['disks']}")
+            lines.append(f"{t('section_disks')}: {cache['disks']}")
         if TRAY_VISIBLE.get("network", True) and "network_speed" in cache:
-            net = cache["network_speed"].replace("скачивание ", "").replace(" отдача ", " ")
-            lines.append(f"СЕТЬ: {net}")
-        text = "\n".join(lines) if lines else "Включите строки в настройках подсказки"
+            net = cache["network_speed"].replace(t("network_download") + " ", "").replace(" " + t("network_upload") + " ", " ")
+            lines.append(f"{t('section_network')}: {net}")
+        text = "\n".join(lines) if lines else t("tooltip_enable_lines")
         if max_length is not None and len(text) > max_length:
             text = text[: max_length - 1] + "…"
         return text
     except Exception:
-        return "ЦПУ/ОЗУ/…"
+        return t("fallback_cpu_ram")
 
 
 def _icon_path():
@@ -919,7 +995,7 @@ def _run_overlay_window():
             apply_overlay_style()
             text = get_tooltip_text(max_length=None)
             if not (text or "").strip():
-                text = "ЦПУ/ОЗУ/…"
+                text = t("fallback_cpu_ram")
             lab.config(text=text)
             text_win.update_idletasks()
             place_at_corner()
@@ -1026,21 +1102,50 @@ def _run_stats_window(parent_root=None, icon=None):
             except Exception:
                 pass
 
-    BG = "#1e1e2e"
-    CARD = "#313244"
-    TEXT = "#cdd6f4"
-    ACCENT = "#89b4fa"
-    SUBTLE = "#a6adc8"
-    RADIO_BG = "#45475a"
+    # Палитры тем (Win11 светлая / тёмная)
+    THEME_PALETTES = {
+        "light": {
+            "BG": "#f3f3f3", "CARD": "#ffffff", "TEXT": "#202020", "ACCENT": "#0078d4",
+            "SUBTLE": "#605e5c", "RADIO_BG": "#e5e5e5", "BORDER": "#e5e5e5",
+            "BTN_HOVER": "#106ebe", "DANGER": "#c42b1c", "DANGER_HOVER": "#a32618",
+            "SEP_COLOR": "#e5e5e5",
+        },
+        "dark": {
+            "BG": "#202020", "CARD": "#2d2d2d", "TEXT": "#e5e5e5", "ACCENT": "#60c6ff",
+            "SUBTLE": "#a0a0a0", "RADIO_BG": "#3d3d3d", "BORDER": "#404040",
+            "BTN_HOVER": "#7ec8ff", "DANGER": "#e05545", "DANGER_HOVER": "#c44",
+            "SEP_COLOR": "#404040",
+        },
+    }
+    cfg = load_settings()
+    theme_setting = cfg.get("theme", "system")
+    effective_theme = _get_system_theme() if theme_setting == "system" else theme_setting
+    palette = THEME_PALETTES.get(effective_theme, THEME_PALETTES["light"])
+    BG = palette["BG"]
+    CARD = palette["CARD"]
+    TEXT = palette["TEXT"]
+    ACCENT = palette["ACCENT"]
+    SUBTLE = palette["SUBTLE"]
+    RADIO_BG = palette["RADIO_BG"]
+    BORDER = palette["BORDER"]
+    BTN_HOVER = palette["BTN_HOVER"]
+    DANGER = palette["DANGER"]
+    DANGER_HOVER = palette["DANGER_HOVER"]
+    SEP_COLOR = palette["SEP_COLOR"]
 
     root = tk.Toplevel(parent_root) if parent_root else tk.Tk()
     _stats_window_root = root  # глобальная ссылка для клика по иконке (закрыть окно)
-    root.title("Показатели системы")
+    root.title(t("window_title"))
     root.resizable(True, True)
     root.minsize(420, 380)
     root.configure(bg=BG)
     if parent_root:
         root.transient(parent_root)
+    if sys.platform == "win32":
+        try:
+            root.attributes("-toolwindow", False)
+        except Exception:
+            pass
     # Иконка окна — та же, что в трее (готовый tray_stats.ico)
     try:
         icon_ico_path = _icon_path()
@@ -1057,9 +1162,46 @@ def _run_stats_window(parent_root=None, icon=None):
 
     font_mono = tkfont.Font(family="Consolas", size=11)
     font_ui = tkfont.Font(family="Segoe UI", size=10)
+    font_icon = tkfont.Font(family="Segoe MDL2 Assets", size=12) if sys.platform == "win32" else font_ui
 
-    # Загружаем сохранённые настройки для отображения в окне (fallback — текущие глобальные)
-    cfg = load_settings()
+    def _make_icon_btn(parent, icon_char, label_text, cmd, bg, fg="white", hover_bg=None):
+        """Кнопка в стиле Win11: иконка (Segoe MDL2 Assets) + текст. Возвращает (frame, text_label)."""
+        hover_bg = hover_bg or bg
+        f = tk.Frame(parent, bg=bg, cursor="hand2", padx=12, pady=6)
+        try:
+            il = tk.Label(f, text=icon_char, font=font_icon, fg=fg, bg=bg)
+            il.pack(side=tk.LEFT, padx=(0, 6))
+        except Exception:
+            pass
+        tl = tk.Label(f, text=label_text, font=font_ui, fg=fg, bg=bg)
+        tl.pack(side=tk.LEFT)
+        def _bind_enter(e):
+            f.configure(bg=hover_bg)
+            for c in f.winfo_children():
+                try:
+                    c.configure(bg=hover_bg)
+                except Exception:
+                    pass
+        def _bind_leave(e):
+            f.configure(bg=bg)
+            for c in f.winfo_children():
+                try:
+                    c.configure(bg=bg)
+                except Exception:
+                    pass
+        def _run(e=None):
+            cmd()
+        f.bind("<Button-1>", _run)
+        for c in f.winfo_children():
+            c.bind("<Button-1>", _run)
+        f.bind("<Enter>", _bind_enter)
+        f.bind("<Leave>", _bind_leave)
+        for c in f.winfo_children():
+            c.bind("<Enter>", _bind_enter)
+            c.bind("<Leave>", _bind_leave)
+        return f, tl
+
+    # Загружаем сохранённые настройки (cfg уже загружен выше для темы)
     vis = cfg.get("tray_visible", TRAY_VISIBLE)
     interval_sec = _SafeIntVar(root, value=cfg.get("tray_interval", TRAY_INTERVAL))
     visible = {
@@ -1102,13 +1244,13 @@ def _run_stats_window(parent_root=None, icon=None):
             _start_overlay_if_enabled()
 
     # Блок: настройки всплывающей подсказки в трее
-    tray_frame = tk.LabelFrame(root, text=" Всплывающая подсказка в трее (при наведении на иконку) ", font=font_ui, fg=SUBTLE, bg=BG)
+    tray_frame = tk.LabelFrame(root, text=t("frame_tray_caption"), font=font_ui, fg=SUBTLE, bg=BG)
     tray_frame.pack(fill=tk.X, padx=14, pady=10)
 
     top = tk.Frame(tray_frame, bg=BG, padx=10, pady=6)
     top.pack(fill=tk.X)
-    tk.Label(top, text="Интервал обновления:", font=font_ui, fg=TEXT, bg=BG).pack(side=tk.LEFT, padx=(0, 8))
-    for label, sec in [("2 с", 2), ("10 с", 10), ("30 с", 30), ("1 м", 60), ("5 м", 300), ("10 м", 600)]:
+    tk.Label(top, text=t("interval_label"), font=font_ui, fg=TEXT, bg=BG).pack(side=tk.LEFT, padx=(0, 8))
+    for label, sec in [(t("interval_2s"), 2), (t("interval_10s"), 10), (t("interval_30s"), 30), (t("interval_1m"), 60), (t("interval_5m"), 300), (t("interval_10m"), 600)]:
         rb = tk.Radiobutton(
             top, text=label, variable=interval_sec, value=sec, command=apply_tray_settings,
             font=font_ui, fg=TEXT, bg=BG, selectcolor=CARD, activebackground=BG,
@@ -1118,8 +1260,8 @@ def _run_stats_window(parent_root=None, icon=None):
 
     row1 = tk.Frame(tray_frame, bg=BG)
     row1.pack(fill=tk.X, padx=10, pady=(0, 6))
-    tk.Label(row1, text="Строки в подсказке/оверлее:", font=font_ui, fg=TEXT, bg=BG).pack(side=tk.LEFT, padx=(0, 10))
-    for label, key in [("ЦПУ", "cpu"), ("Ядра", "cores"), ("ГПУ", "gpu"), ("ОЗУ", "ram"), ("Диски", "disks"), ("Сеть", "network")]:
+    tk.Label(row1, text=t("row_visible_label"), font=font_ui, fg=TEXT, bg=BG).pack(side=tk.LEFT, padx=(0, 10))
+    for label, key in [(t("visible_cpu"), "cpu"), (t("visible_cores"), "cores"), (t("visible_gpu"), "gpu"), (t("visible_ram"), "ram"), (t("visible_disks"), "disks"), (t("visible_network"), "network")]:
         cb = tk.Checkbutton(
             row1, text=label, variable=visible[key], command=apply_tray_settings,
             font=font_ui, fg=TEXT, bg=BG, selectcolor=CARD, activebackground=BG,
@@ -1130,12 +1272,12 @@ def _run_stats_window(parent_root=None, icon=None):
     row2 = tk.Frame(tray_frame, bg=BG)
     row2.pack(fill=tk.X, padx=10, pady=(0, 6))
     tk.Checkbutton(
-        row2, text="Автозапуск с Windows", variable=autostart_var, command=apply_tray_settings,
+        row2, text=t("autostart"), variable=autostart_var, command=apply_tray_settings,
         font=font_ui, fg=TEXT, bg=BG, selectcolor=CARD, activebackground=BG,
         activeforeground=TEXT, highlightthickness=0,
     ).pack(side=tk.LEFT)
     tk.Checkbutton(
-        row2, text="Выводить статистику на экран", variable=overlay_var, command=apply_tray_settings,
+        row2, text=t("overlay_on_screen"), variable=overlay_var, command=apply_tray_settings,
         font=font_ui, fg=TEXT, bg=BG, selectcolor=CARD, activebackground=BG,
         activeforeground=TEXT, highlightthickness=0,
     ).pack(side=tk.LEFT, padx=(20, 0))
@@ -1148,9 +1290,9 @@ def _run_stats_window(parent_root=None, icon=None):
 
     overlay_var.trace_add("write", lambda *a: show_overlay_opts())
     overlay_opts_frame = tk.Frame(tray_frame, bg=BG)
-    color_labels = [c[0] for c in OVERLAY_COLORS]
-    pos_labels = [p[0] for p in OVERLAY_POSITIONS]
-    bg_labels = [b[0] for b in OVERLAY_BACKGROUNDS]
+    color_labels = [c[0] for c in _overlay_colors()]
+    pos_labels = [p[0] for p in _overlay_positions()]
+    bg_labels = [b[0] for b in _overlay_backgrounds()]
     # Кнопка-иконка "B" (жирный) слева от выпадающих списков
     def toggle_bold():
         overlay_bold_var.set(not overlay_bold_var.get())
@@ -1167,15 +1309,15 @@ def _run_stats_window(parent_root=None, icon=None):
     overlay_bold_var.trace_add("write", lambda *a: update_bold_btn())
     btn_bold.pack(side=tk.LEFT, padx=(0, 10))
     update_bold_btn()  # начальное состояние по настройкам
-    tk.Label(overlay_opts_frame, text="Цвет текста:", font=font_ui, fg=SUBTLE, bg=BG).pack(side=tk.LEFT, padx=(0, 4))
+    tk.Label(overlay_opts_frame, text=t("overlay_color_label"), font=font_ui, fg=SUBTLE, bg=BG).pack(side=tk.LEFT, padx=(0, 4))
     om_color = tk.OptionMenu(overlay_opts_frame, overlay_color_var, *color_labels, command=lambda _: apply_tray_settings())
     om_color.config(font=font_ui, fg=TEXT, bg=CARD, activebackground=CARD, highlightthickness=0)
     om_color.pack(side=tk.LEFT, padx=(0, 12))
-    tk.Label(overlay_opts_frame, text="Положение текста:", font=font_ui, fg=SUBTLE, bg=BG).pack(side=tk.LEFT, padx=(0, 4))
+    tk.Label(overlay_opts_frame, text=t("overlay_position_label"), font=font_ui, fg=SUBTLE, bg=BG).pack(side=tk.LEFT, padx=(0, 4))
     om_pos = tk.OptionMenu(overlay_opts_frame, overlay_position_var, *pos_labels, command=lambda _: apply_tray_settings())
     om_pos.config(font=font_ui, fg=TEXT, bg=CARD, activebackground=CARD, highlightthickness=0)
     om_pos.pack(side=tk.LEFT, padx=(0, 12))
-    tk.Label(overlay_opts_frame, text="Подложка текста:", font=font_ui, fg=SUBTLE, bg=BG).pack(side=tk.LEFT, padx=(0, 4))
+    tk.Label(overlay_opts_frame, text=t("overlay_background_label"), font=font_ui, fg=SUBTLE, bg=BG).pack(side=tk.LEFT, padx=(0, 4))
     om_bg = tk.OptionMenu(overlay_opts_frame, overlay_bg_var, *bg_labels, command=lambda _: apply_tray_settings())
     om_bg.config(font=font_ui, fg=TEXT, bg=CARD, activebackground=CARD, highlightthickness=0)
     om_bg.pack(side=tk.LEFT)
@@ -1184,32 +1326,32 @@ def _run_stats_window(parent_root=None, icon=None):
 
     # В var храним подписи (для OptionMenu); при apply переводим в ключи/hex
     def overlay_label_to_color(lbl):
-        for label, hex in OVERLAY_COLORS:
+        for label, hex in _overlay_colors():
             if label == lbl:
                 return hex
         return OVERLAY_TEXT_COLOR
     def overlay_label_to_position(lbl):
-        for label, key in OVERLAY_POSITIONS:
+        for label, key in _overlay_positions():
             if label == lbl:
                 return key
         return "top_left"
     def overlay_label_to_bg(lbl):
-        for label, key in OVERLAY_BACKGROUNDS:
+        for label, key in _overlay_backgrounds():
             if label == lbl:
                 return key
         return "transparent"
     def overlay_color_to_label(hex_val):
-        for label, hex in OVERLAY_COLORS:
+        for label, hex in _overlay_colors():
             if hex == hex_val:
                 return label
         return color_labels[0]
     def overlay_position_to_label(key):
-        for label, k in OVERLAY_POSITIONS:
+        for label, k in _overlay_positions():
             if k == key:
                 return label
         return pos_labels[0]
     def overlay_bg_to_label(key):
-        for label, k in OVERLAY_BACKGROUNDS:
+        for label, k in _overlay_backgrounds():
             if k == key:
                 return label
         return bg_labels[0]
@@ -1224,7 +1366,7 @@ def _run_stats_window(parent_root=None, icon=None):
     card.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 10))
     stats_inner = tk.Frame(card, bg=CARD)
     stats_inner.pack(fill=tk.BOTH, expand=True, padx=14, pady=12, anchor=tk.NW)
-    SEP_COLOR = "#585b70"  # линия-разделитель во всю ширину
+    SEP_COLOR = "#e5e5e5"  # разделитель строк (под стиль Win11)
 
     MAX_STATS_LINES = 25  # максимум строк в блоке показателей (виджеты создаём один раз)
     line_widgets = []  # список (label, sep_frame) для каждой строки
@@ -1232,7 +1374,7 @@ def _run_stats_window(parent_root=None, icon=None):
         lab = tk.Label(stats_inner, text="", font=font_mono, justify=tk.LEFT, fg=TEXT, bg=CARD, anchor=tk.NW)
         sep = tk.Frame(stats_inner, height=1, bg=SEP_COLOR)
         line_widgets.append((lab, sep))
-    placeholder_label = tk.Label(stats_inner, text="Включите хотя бы один раздел в настройках.", font=font_mono, fg=TEXT, bg=CARD, anchor=tk.NW)
+    placeholder_label = tk.Label(stats_inner, text=t("placeholder_no_sections"), font=font_mono, fg=TEXT, bg=CARD, anchor=tk.NW)
 
     WINDOW_REFRESH_SEC = 2
 
@@ -1295,39 +1437,75 @@ def _run_stats_window(parent_root=None, icon=None):
         """Включить/выключить непрерывную запись статистики в файл (раз в RECORDING_INTERVAL сек)."""
         global STATS_RECORDING
         STATS_RECORDING = not STATS_RECORDING
-        rec_btn.config(text="Остановить запись" if STATS_RECORDING else "Включить запись")
+        if rec_btn_text is not None:
+            rec_btn_text.config(text=t("btn_stop_recording") if STATS_RECORDING else t("btn_start_recording"))
 
     btn_frame = tk.Frame(root, bg=BG)
     btn_frame.pack(fill=tk.X, padx=14, pady=(0, 12))
-    tk.Button(
-        btn_frame, text="Обновить", command=on_refresh_click,
-        font=font_ui, fg=BG, bg=ACCENT, activebackground=SUBTLE,
-        relief=tk.FLAT, padx=14, pady=6, cursor="hand2",
-    ).pack(side=tk.LEFT, padx=(0, 8))
-    rec_btn = tk.Button(
-        btn_frame, text=("Остановить запись" if STATS_RECORDING else "Включить запись"), command=on_toggle_recording,
-        font=font_ui, fg=BG, bg=CARD, activebackground=RADIO_BG,
-        relief=tk.FLAT, padx=14, pady=6, cursor="hand2",
+    # Иконки Segoe MDL2 Assets: Refresh E72C, Stop E71A, Power E7E8, ChromeClose E8BB
+    _b, _ = _make_icon_btn(btn_frame, "\uE72C", t("btn_refresh"), on_refresh_click, ACCENT, "white", BTN_HOVER)
+    _b.pack(side=tk.LEFT, padx=(0, 8))
+    rec_btn_frame, rec_btn_text = _make_icon_btn(
+        btn_frame, "\uE71A",
+        t("btn_stop_recording") if STATS_RECORDING else t("btn_start_recording"),
+        on_toggle_recording, CARD, TEXT, RADIO_BG,
     )
-    rec_btn.pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(
-        btn_frame, text="Выключить", command=on_exit_app_click,
-        font=font_ui, fg="white", bg="#c44", activebackground="#a33",
-        relief=tk.FLAT, padx=14, pady=6, cursor="hand2",
-    ).pack(side=tk.LEFT, padx=(0, 8))
-    tk.Button(
-        btn_frame, text="Закрыть", command=on_close,
-        font=font_ui, fg=TEXT, bg=CARD, activebackground=RADIO_BG,
-        relief=tk.FLAT, padx=14, pady=6, cursor="hand2",
-    ).pack(side=tk.LEFT)
+    rec_btn_frame.pack(side=tk.LEFT, padx=(0, 8))
+    _b, _ = _make_icon_btn(btn_frame, "\uE7E8", t("btn_exit"), on_exit_app_click, DANGER, "white", DANGER_HOVER)
+    _b.pack(side=tk.LEFT, padx=(0, 8))
+    _b, _ = _make_icon_btn(btn_frame, "\uE8BB", t("btn_close"), on_close, CARD, TEXT, RADIO_BG)
+    _b.pack(side=tk.LEFT)
 
-    # Подпись внизу окна слева (название, автор, версия, год)
+    # Подпись внизу окна: слева — приложение, справа — выбор языка и темы
     footer_frame = tk.Frame(root, bg=BG)
     footer_frame.pack(side=tk.BOTTOM, fill=tk.X)
     tk.Label(
         footer_frame, text=f"{APP_NAME} | {APP_AUTHOR} | {APP_VERSION} | {APP_YEAR}",
         font=("Segoe UI", 8), fg=SUBTLE, bg=BG, anchor=tk.W,
     ).pack(side=tk.LEFT, padx=14, pady=(0, 8))
+
+    LANG_OPTIONS = [(t("lang_rus"), "rus"), (t("lang_eng"), "eng"), (t("lang_bel"), "bel"), (t("lang_tat"), "tat"), (t("lang_chi"), "chi")]
+    lang_to_label = {code: lbl for lbl, code in LANG_OPTIONS}
+    label_to_lang = {lbl: code for lbl, code in LANG_OPTIONS}
+    lang_var = tk.StringVar(root, value=lang_to_label.get(cfg.get("lang", "rus"), t("lang_rus")))
+
+    def on_lang_change(*args):
+        code = label_to_lang.get(lang_var.get(), "rus")
+        save_settings(lang=code)
+        load_lang(code)
+        on_close()
+        tk_main = getattr(icon, "_tk_root", None) if icon is not None else None
+        if tk_main is not None:
+            tk_main.after(200, lambda: _show_full_stats(icon, None))
+
+    lang_btn_frame = tk.Frame(footer_frame, bg=BG)
+    lang_btn_frame.pack(side=tk.RIGHT, padx=(14, 0), pady=(0, 6))
+    om_lang = tk.OptionMenu(lang_btn_frame, lang_var, *[lbl for lbl, _ in LANG_OPTIONS], command=lambda _: on_lang_change())
+    om_lang.config(font=("Segoe UI", 9), fg=TEXT, bg=CARD, activebackground=CARD, highlightthickness=0, width=12)
+    om_lang.pack(side=tk.LEFT)
+
+    THEME_LABELS = [(t("theme_light"), "light"), (t("theme_dark"), "dark"), (t("theme_system"), "system")]
+    theme_to_label = {v: lbl for lbl, v in THEME_LABELS}
+    label_to_theme = {lbl: v for lbl, v in THEME_LABELS}
+    theme_var = tk.StringVar(root, value=theme_to_label.get(theme_setting, t("theme_system")))
+
+    def on_theme_change(*args):
+        val = label_to_theme.get(theme_var.get(), "system")
+        save_settings(theme=val)
+        on_close()
+        tk_main = getattr(icon, "_tk_root", None) if icon is not None else None
+        if tk_main is not None:
+            tk_main.after(200, lambda: _show_full_stats(icon, None))
+
+    theme_btn_frame = tk.Frame(footer_frame, bg=BG)
+    theme_btn_frame.pack(side=tk.RIGHT, padx=14, pady=(0, 6))
+    try:
+        tk.Label(theme_btn_frame, text="\uE793", font=font_icon, fg=SUBTLE, bg=BG).pack(side=tk.LEFT, padx=(0, 4))
+    except Exception:
+        pass
+    om_theme = tk.OptionMenu(theme_btn_frame, theme_var, *[lbl for lbl, _ in THEME_LABELS], command=lambda _: on_theme_change())
+    om_theme.config(font=("Segoe UI", 9), fg=TEXT, bg=CARD, activebackground=CARD, highlightthickness=0, width=14)
+    om_theme.pack(side=tk.LEFT)
 
     def _check_close_requested():
         global _stats_window_root, _stats_window_close_requested
@@ -1403,6 +1581,7 @@ def main():
 
     # Загрузка сохранённых настроек
     cfg = load_settings()
+    load_lang(cfg.get("lang", "rus"))
     default_visible = {"cpu": True, "cores": True, "gpu": True, "ram": True, "disks": True, "network": True}
     TRAY_VISIBLE = {**default_visible, **cfg.get("tray_visible", {})}
     if cfg.get("tray_interval") is not None:
@@ -1425,8 +1604,8 @@ def main():
     # Иконка трея — готовый tray_stats.ico (файл должен лежать рядом с exe/run.py)
     icon_image = _load_icon_image()
     menu = pystray.Menu(
-        pystray.MenuItem("Показать показатели", _on_tray_activate, default=True),
-        pystray.MenuItem("Выключить", lambda i, _: i.stop()),
+        pystray.MenuItem(t("menu_show_stats"), _on_tray_activate, default=True),
+        pystray.MenuItem(t("menu_exit"), lambda i, _: i.stop()),
     )
     icon = pystray.Icon("system_stats", icon_image, get_tooltip_text(), menu=menu)
 
@@ -1469,11 +1648,11 @@ def main():
 
         def _make_tray_menu(icon_ref, on_exit):
             return pystray.Menu(
-                pystray.MenuItem("Показать показатели", _on_tray_activate, default=True),
-                pystray.MenuItem("Выключить оверлей" if OVERLAY_ENABLED else "Включить оверлей", lambda i, _: _on_toggle_overlay(i, on_exit)),
-                pystray.MenuItem("Обновить", lambda i, _: refresh_stats_and_tooltip(i)),
-                pystray.MenuItem("Остановить запись" if STATS_RECORDING else "Включить запись", lambda i, _: _on_toggle_recording(i, on_exit)),
-                pystray.MenuItem("Выключить", on_exit),
+                pystray.MenuItem(t("menu_show_stats"), _on_tray_activate, default=True),
+                pystray.MenuItem(t("menu_overlay_off") if OVERLAY_ENABLED else t("menu_overlay_on"), lambda i, _: _on_toggle_overlay(i, on_exit)),
+                pystray.MenuItem(t("menu_refresh"), lambda i, _: refresh_stats_and_tooltip(i)),
+                pystray.MenuItem(t("menu_recording_off") if STATS_RECORDING else t("menu_recording_on"), lambda i, _: _on_toggle_recording(i, on_exit)),
+                pystray.MenuItem(t("menu_exit"), on_exit),
             )
 
         icon.menu = _make_tray_menu(icon, _on_exit)
@@ -1501,8 +1680,8 @@ def main():
         icon._message_handlers[WM_UPDATE_TIP] = _on_update_tip
         icon._post_tip_update = _post_tip_update
 
-    t = threading.Thread(target=_update_tooltip, args=(icon,), daemon=True)
-    t.start()
+    tooltip_thread = threading.Thread(target=_update_tooltip, args=(icon,), daemon=True)
+    tooltip_thread.start()
 
     _start_overlay_if_enabled()
 

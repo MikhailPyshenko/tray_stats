@@ -5,7 +5,7 @@ a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
-    datas=[('tray_stats.ico', '.')],
+    datas=[('tray_stats.ico', '.'), ('src/lang', 'lang')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
