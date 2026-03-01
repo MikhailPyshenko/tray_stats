@@ -50,6 +50,23 @@ python run.py
 
 ---
 
+## Сборка в exe
+
+Положите `tray_stats.ico` в корень проекта (рядом с `run.py`).
+
+```bash
+pyinstaller tray_stats.spec
+```
+
+Готовый exe: `dist/tray_stats.exe`.
+
+---
+
+## НЮАНСЫ
+
+### Производительность
+<img width="461" height="34" alt="{526A4401-FB5C-4DE6-9507-4CD3EBB4C000}" src="https://github.com/user-attachments/assets/f411d7fe-90c5-4414-946c-c92f5f14e17f" />
+
 ### Температура CPU (Windows)
 
 Часто без доп. ПО температура не отдаётся. Варианты:
@@ -61,15 +78,3 @@ python run.py
 
 - Оверлей виден поверх обычных окон и **borderless fullscreen**. В **эксклюзивном полноэкранном** режиме (DirectX/OpenGL) поверх картинки вывести нельзя.
 - В полноэкранном режиме панель задач (и трей) часто скрыта — нажмите Win или переведите игру в «оконный полноэкранный» / «без рамки».
-
----
-
-## Сборка в exe
-
-Положите `tray_stats.ico` в корень проекта (рядом с `run.py`).
-
-```bash
-pyinstaller tray_stats.spec
-```
-
-Готовый exe: `dist/tray_stats.exe`.
